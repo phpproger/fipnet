@@ -216,6 +216,22 @@ def ns_orthogonalize_(m, iters=5):
                 ns_polar_(p, iters)
 
 
+def eval_chunked(m, vx, vy, chunk=256):
+    """Vocab-8192 allpos eval materializes (2048, W, V) logits = 4.3GB fp32
+    if done in one shot -> chunk the windows."""
+    preds, vlosses = [], []
+    with torch.no_grad():
+        for i in range(0, vx.shape[0], chunk):
+            xs, ys = vx[i:i+chunk], vy[i:i+chunk]
+            preds.append(m.predict(xs))
+            vlosses.append(m.loss(xs, ys).item() * xs.shape[0])
+    torch.cuda.empty_cache()
+    pred = torch.cat(preds)
+    acc = (pred == vy).float().mean().item()
+    acc_l = (pred[:, -1] == vy[:, -1]).float().mean().item()
+    return acc, acc_l, sum(vlosses) / vx.shape[0]
+
+
 def run_ddp(m, args, rank, world, local, device, log_prefix="fip"):
     """The full train loop; m is the RAW (unwrapped) module."""
     main_rank = is_main(rank)
@@ -298,11 +314,7 @@ def run_ddp(m, args, rank, world, local, device, log_prefix="fip"):
                     log(rank, f"  *** DIVERGENCE at step {s}: checksum differs "
                                f"across ranks by {spread:.3e}. Gradients are "
                                f"NOT being reduced - results are invalid. ***")
-            with torch.no_grad():
-                pred = m.predict(vx)
-                acc = (pred == vy).float().mean().item()
-                acc_l = (pred[:, -1] == vy[:, -1]).float().mean().item()
-                vloss = m.loss(vx, vy).item()
+            acc, acc_l, vloss = eval_chunked(m, vx, vy)
             torch.cuda.empty_cache()
             tag = ""
             if acc > best:
@@ -336,12 +348,17 @@ def main(args=None, rank=None, world=None):
 
     torch.manual_seed(0)
     bm = torch.load(args.bytes_mat, map_location="cpu")         if getattr(args, "bytes_mat", None) else None
-    vocab = args.vocab or (int(bm.shape[0]) if bm is not None else 2048)
-    m = av.AttLM(input_mode="byte", train_allpos=args.allpos,
-                 pos_mode=args.pos_mode, block_kind=args.block_kind,
-                 dim=args.dim, heads=args.heads, n_attn=args.n_attn,
-                 depth_after=args.depth, code_dim=args.code_dim,
-                 n_bytes=args.n_bytes, d_code=args.d_code,
+    vocab = getattr(args, "vocab", 0) or         (int(bm.shape[0]) if bm is not None else 2048)
+    m = av.AttLM(input_mode="byte",
+                 train_allpos=getattr(args, "allpos", True),
+                 pos_mode=getattr(args, "pos_mode", "rope"),
+                 block_kind=getattr(args, "block_kind", "gated"),
+                 dim=args.dim, heads=args.heads,
+                 n_attn=getattr(args, "n_attn", 2),
+                 depth_after=getattr(args, "depth", 10),
+                 code_dim=getattr(args, "code_dim", 32),
+                 n_bytes=getattr(args, "n_bytes", 8),
+                 d_code=getattr(args, "d_code", 32),
                  vocab=vocab, window=args.window, bytes_mat=bm).to(device)
     if getattr(args, "iso_lambda", 0.0):
         m.iso_lambda = args.iso_lambda
