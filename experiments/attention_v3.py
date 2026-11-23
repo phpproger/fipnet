@@ -186,7 +186,11 @@ class AttLM(nn.Module):
 
     def _iso_reg(self):
         if self.iso_lambda <= 0:
-            return self.blocks[0].weight.new_zeros(()) if len(self.blocks) else 0.0
+            # zero-tensor on the right device/dtype; blocks may be gated
+            # (no .weight since the dead-weight fix), so use any parameter
+            p = next(self.blocks.parameters()) if len(self.blocks) else \
+                next(self.parameters())
+            return p.new_zeros(())
         reg = 0.0
         for blk in list(self.blocks) + list(self.mix_blocks):
             reg = reg + blk.iso_prior()
