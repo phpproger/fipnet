@@ -131,7 +131,10 @@ def setup(rank, world, store_path):
     os.environ.setdefault("NCCL_SOCKET_IFNAME", "lo")
     os.environ.setdefault("GLOO_SOCKET_IFNAME", "lo")
     os.environ.setdefault("NCCL_P2P_DISABLE", "1")
-    backend = os.environ.get("FIP_BACKEND") or         ("nccl" if dist.is_nccl_available() else "gloo")   # Windows: gloo
+    # Default gloo: works everywhere (Windows, Kaggle containers where NCCL
+    # keeps picking the docker bridge). Opt into NCCL explicitly with
+    # FIP_BACKEND=nccl when the transport behaves.
+    backend = os.environ.get("FIP_BACKEND", "gloo")
     dist.init_process_group(backend,
                             init_method=f"file://{os.path.abspath(store_path)}",
                             rank=rank, world_size=world)
