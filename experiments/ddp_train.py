@@ -86,6 +86,9 @@ def parse_args():
     ap.add_argument("--val-file", default="val2048.npy")
     ap.add_argument("--vocab", type=int, default=0,
                     help="0 = infer from bytes_mat/tokenizer path")
+    ap.add_argument("--bytes-mat", default=None,
+                    help="portable byte rows (V x n_bytes); V is inferred "
+                         "from its shape when --vocab 0")
     ap.add_argument("--n-bytes", type=int, default=8)
     ap.add_argument("--d-code", type=int, default=32)
     ap.add_argument("--codebook", default=None)
