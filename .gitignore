@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+data/raw_stories.txt
+data/corpus_16k_train.txt
+data/corpus_16k_val.txt
+data/sample_*.txt
+data/sample_nl.txt
+data/train16384.npy
+data/val16384.npy
+data/MNIST/
+data/tinyshakespeare.txt
+.ddp_store
+*.pt.tmp
