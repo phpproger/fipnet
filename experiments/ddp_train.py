@@ -125,7 +125,13 @@ def setup(rank, world, store_path):
     """FileStore init: portable, no libuv/TCPStore needed."""
     if rank == 0 and os.path.exists(store_path):
         os.remove(store_path)
-    backend = "nccl" if dist.is_nccl_available() else "gloo"   # Windows: gloo
+    # single-host container (Kaggle T4x2): NCCL sometimes picks the docker
+    # bridge and fails with socketPollConnect - force loopback and disable
+    # P2P (T4 has no NVLink). Override via FIP_BACKEND=gloo if ever needed.
+    os.environ.setdefault("NCCL_SOCKET_IFNAME", "lo")
+    os.environ.setdefault("GLOO_SOCKET_IFNAME", "lo")
+    os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+    backend = os.environ.get("FIP_BACKEND") or         ("nccl" if dist.is_nccl_available() else "gloo")   # Windows: gloo
     dist.init_process_group(backend,
                             init_method=f"file://{os.path.abspath(store_path)}",
                             rank=rank, world_size=world)
