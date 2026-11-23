@@ -4,7 +4,6 @@ the codebook: 'welch' (standard optimized, the 38.2% champion setup) vs
 contribution of Stage 0 without any KD."""
 import argparse, os, sys, time, torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.argv = ["x"]
 import experiments.attention_v3 as av
 from experiments.mini_llama import MiniLlama
 from experiments.tiny_stories import load_chunks
