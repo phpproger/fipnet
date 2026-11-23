@@ -99,17 +99,18 @@ class LlamaBlock(nn.Module):
 
 
 class MiniLlama(nn.Module):
-    def __init__(self, dim=160, layers=5, heads=4, window=64, tie=False, allpos=False):
+    def __init__(self, dim=160, layers=5, heads=4, window=64, tie=False, allpos=False,
+                 vocab=None):
         super().__init__()
         self.window = window
         self.allpos = allpos
-        self.embed = nn.Embedding(V, dim)
+        self.embed = nn.Embedding(vocab or V, dim)
         self.blocks = nn.ModuleList(LlamaBlock(dim, heads, window) for _ in range(layers))
         self.norm_f = RMSNorm(dim)
         if tie:
             self.head = None
         else:
-            self.head = nn.Linear(dim, V, bias=False)
+            self.head = nn.Linear(dim, vocab or V, bias=False)
         self.head_w = None
 
     def features(self, tokens, full=False):

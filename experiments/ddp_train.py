@@ -24,6 +24,7 @@ Design notes:
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -34,6 +35,37 @@ import torch.nn as nn
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import experiments.attention_v3 as av
+
+
+_DEPTH_W = re.compile(r"blocks\.\d+\.(w1|w2|w3|weight)$")
+
+
+def ns_polar_(W, iters=5):
+    """In-place Newton-Schulz polar factor for a 2-D map of either
+    orientation: works on the tall side (rows <= cols), so both wide (r, D)
+    gated maps and tall (D, r) maps like w3 get orthonormal singular
+    vectors. Keeps singular VALUES at 1, kills trained spectral drift; the
+    gated skip (cos psi I + sin psi phi(.)) then stays isometric at ANY
+    depth.
+    """
+    X = W.data.float()
+    tall = X.shape[0] > X.shape[1]
+    if tall:
+        X = X.T
+    for _ in range(iters):
+        A = X.T @ X
+        I = torch.eye(A.shape[0], device=A.device, dtype=A.dtype)
+        X = 0.5 * X @ (3 * I - A)
+    if tall:
+        X = X.T
+    W.data.copy_(X.to(W.dtype))
+
+
+def ns_orthogonalize_(m, iters=5):
+    with torch.no_grad():
+        for name, p in m.named_parameters():
+            if p.dim() == 2 and _DEPTH_W.search(name):
+                ns_polar_(p, iters)
 
 
 class LossModule(nn.Module):
@@ -73,6 +105,11 @@ def parse_args():
     ap.add_argument("--ckpt", default="ck_ddp.pt")
     ap.add_argument("--eval-every", type=int, default=5000)
     ap.add_argument("--ckpt-every", type=int, default=2000)
+    ap.add_argument("--ns-ortho", type=int, default=0,
+                    help="Newton-Schulz re-orthogonalization of the depth-chain "
+                         "block maps every N steps (0=off, try 50). Polar factor "
+                         "of w1/w2/w3 keeps the isometric init anchor for deep "
+                         "stacks (L>=14) against trained gain drift.")
     ap.add_argument("--amp", action="store_true")
     ap.add_argument("--cpu", action="store_true", help="CPU smoke of DDP logic")
     ap.add_argument("--bench", action="store_true")
@@ -184,6 +221,8 @@ def main(rank, world, args=None, store_path=".ddp_store"):
         scaler.scale(loss).backward()
         scaler.step(opt)
         scaler.update()
+        if args.ns_ortho and s % args.ns_ortho == 0:
+            ns_orthogonalize_(m)
         if s % args.ckpt_every == 0:
             save(s, best, traj)
         if s % args.eval_every == 0:

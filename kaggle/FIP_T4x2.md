@@ -92,6 +92,30 @@ Config sheet (V=8192, n_bytes=12, code_dim=32):
 VRAM at B=512x64: ~4-6GB per T4 (16GB) - headroom for --window 128
 (attention FLOPs x4, rope/mask now handle any window).
 
+## 4c. Iso-fair llama baseline (same protocol, ~9.7M)
+
+```python
+!torchrun --standalone --nproc_per_node=2 experiments/train_wiki_llama.py     --dim 224 --layers 13 --heads 8 --vocab 8192 --tie     --train-file train_tokens.npy --val-file val_tokens.npy     --steps 50000 --batch 512 --lr 3e-4     --data-dir data --ckpt /kaggle/working/ck_wiki_llama10m.pt
+```
+= 9.67M params (1.84M vocab params, tied head) vs FIP 9.87M (0 vocab).
+Same data sharding, allpos eval, atomic ckpt, resume as ddp_train.
+
+## 4d. Newton-Schulz anchor (unbounded-depth experiment)
+
+Same 10M FIP run but re-orthogonalize the depth-chain block maps (w1/w2/w3,
+polar factor via NS iteration) every 50 steps:
+
+```python
+!torchrun --standalone --nproc_per_node=2 experiments/ddp_train.py     --dim 640 --depth 14 --n-attn 2 --heads 4     --train-file train_tokens.npy --val-file val_tokens.npy     --n-bytes 12 --vocab 8192 --ns-ortho 50     --steps 50000 --batch 512 --lr 3e-4     --data-dir data --bytes-mat data/bytes_mat.pt     --ckpt /kaggle/working/ck_wiki10m_ns.pt
+```
+
+Compare vs cell-2 run (same config, ns-ortho 0): the iso-prior already
+anchors beta/psi (psi drift measured 0.009 over 30k); NS anchors the W
+spectra (trained drift measured: s_max 1.36, s_min 0.86 -> exactly 1.0).
+At depth 14 the compounding gain drift is the remaining depth limit -
+this cell isolates its contribution. Optionally add --depth 16 for the
+"beyond" arm (D576 to stay ~10M: 9.7M).
+
 ## 5. Gotchas
 
 * `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` — the scripts set it via
