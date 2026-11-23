@@ -127,10 +127,11 @@ def setup(rank, world, store_path):
         os.remove(store_path)
     # single-host container (Kaggle T4x2): NCCL sometimes picks the docker
     # bridge and fails with socketPollConnect - force loopback and disable
-    # P2P (T4 has no NVLink). Override via FIP_BACKEND=gloo if ever needed.
-    os.environ.setdefault("NCCL_SOCKET_IFNAME", "lo")
-    os.environ.setdefault("GLOO_SOCKET_IFNAME", "lo")
-    os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+    # P2P (T4 has no NVLink). Linux-only: Windows has no 'lo' interface.
+    if os.name != "nt":
+        os.environ.setdefault("NCCL_SOCKET_IFNAME", "lo")
+        os.environ.setdefault("GLOO_SOCKET_IFNAME", "lo")
+        os.environ.setdefault("NCCL_P2P_DISABLE", "1")
     # Default gloo: works everywhere (Windows, Kaggle containers where NCCL
     # keeps picking the docker bridge). Opt into NCCL explicitly with
     # FIP_BACKEND=nccl when the transport behaves.
