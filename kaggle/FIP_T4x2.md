@@ -127,3 +127,56 @@ this cell isolates its contribution. Optionally add --depth 16 for the
   resume across two sessions (checkpoint is the only state needed).
 * `--n-attn 2` students need `--depth >= 2`; distillation stage-1 requires
   `--comp-blocks >= n_attn` (all attention inside the compressor).
+
+
+## 5. TPU v5e-8 path (torch_xla 2.8 / PJRT)
+
+Notebook accelerator setting MUST read `TPU v5e-8`. Pinned install (a
+mismatched torch/torch_xla pairing is the usual failure):
+
+```python
+!pip install -q "torch~=2.8.0" "torch_xla[tpu]~=2.8.0"     -f https://storage.googleapis.com/libtpu-releases/index.html
+```
+
+```python
+# clone + data (TPU VM has internet; prepare takes ~15-25 min)
+!git clone https://github.com/phpproger/fipnet.git /kaggle/working/fipnet
+%cd /kaggle/working/fipnet
+!python experiments/prepare_wikitext.py --vocab 8192 --n-bytes 12     --max-tokens 100000000 --out-dir data
+```
+
+```python
+# codebook prep ONCE on CPU (workers only load it - 8x optimize_codebook
+# would be waste and the parent must not touch the XLA device before
+# --tpu-parallel)
+!python - <<'PY'
+import sys; sys.path.insert(0, ".")
+from experiments.tpu_fip_train import build_parser, build_model
+a = build_parser().parse_args(["--steps", "1"])
+m = build_model(a)          # CPU: optimizes + caches data/codebook_wiki8192.pt
+del m
+print("codebook cached")
+PY
+```
+
+```python
+# smoke: single core, 20 steps (~30 s; step 1 is XLA compile, not steady state)
+!python experiments/run_tpu_fip.py --steps 20
+```
+
+```python
+# real run: 8 cores. MUST be a fresh process. --batch is the GLOBAL batch
+# (~128/core per Kaggle guidance). Expected: 2 compiles (train + eval graph)
+# and no more - more means a shape varies mid-run.
+!python experiments/run_tpu_fip.py --tpu-parallel --batch 1024     --steps 20000 --eval-every 1000     --save /kaggle/working/ck_tpu_fip.pt     --log /kaggle/working/runs/fip_tpu.jsonl
+```
+
+TPU-specific caveats (from the giant-ghl campaign):
+  * constant LR (recompile storm with per-step python floats); TPU-vs-TPU
+    comparisons only - cross_entropy runs bf16, lossier than GPU fp32
+  * no CUDA graphs / torch.compile on torch_xla; plain step + mark_step
+  * batch is GLOBAL under replication (ddp_train --batch is per rank)
+  * read the JSONL, not just stdout: `!torchrun` / notebook buffering can
+    hide progress; per-eval records survive everything
+  * if compile is modest but execute explodes -> silent scalar-loop
+    fallback: correct numbers, unusable throughput
