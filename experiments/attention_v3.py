@@ -116,17 +116,18 @@ class AttLM(nn.Module):
             self.lift = nn.Linear(code_dim, dim, bias=False)
             nn.init.orthogonal_(self.lift.weight)
         else:   # byte-tuple harmonic token code
-            from tokenizers import Tokenizer
-            tk = Tokenizer.from_file(tokenizer_path or TK)
-            rows = np.zeros((vocab, n_bytes), dtype=np.int64)
-            for i in range(vocab):
-                # id_to_token may be None (added tokens / merge gaps)
-                s = (tk.id_to_token(i) or "").replace("\u0120", " ").replace("\u010a", "\n")
-                b = s.encode("utf-8")[:n_bytes]
-                rows[i, :len(b)] = list(b)
-            if bytes_mat is not None:            # portable precomputed rows
+            if bytes_mat is not None:            # portable precomputed rows:
+                # no tokenizer needed at construction time
                 self.register_buffer("bytes_mat", bytes_mat)
             else:
+                from tokenizers import Tokenizer
+                tk = Tokenizer.from_file(tokenizer_path or TK)
+                rows = np.zeros((vocab, n_bytes), dtype=np.int64)
+                for i in range(vocab):
+                    # id_to_token may be None (added tokens / merge gaps)
+                    s = (tk.id_to_token(i) or "").replace("\u0120", " ").replace("\u010a", "\n")
+                    b = s.encode("utf-8")[:n_bytes]
+                    rows[i, :len(b)] = list(b)
                 self.register_buffer("bytes_mat", torch.from_numpy(rows))
             self.omega = nn.Parameter(torch.randn(n_bytes, d_code) * 0.5)
             self.theta = nn.Parameter(torch.zeros(n_bytes, d_code))
