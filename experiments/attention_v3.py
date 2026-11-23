@@ -120,7 +120,8 @@ class AttLM(nn.Module):
             tk = Tokenizer.from_file(tokenizer_path or TK)
             rows = np.zeros((vocab, n_bytes), dtype=np.int64)
             for i in range(vocab):
-                s = tk.id_to_token(i).replace("\u0120", " ").replace("\u010a", "\n")
+                # id_to_token may be None (added tokens / merge gaps)
+                s = (tk.id_to_token(i) or "").replace("\u0120", " ").replace("\u010a", "\n")
                 b = s.encode("utf-8")[:n_bytes]
                 rows[i, :len(b)] = list(b)
             if bytes_mat is not None:            # portable precomputed rows

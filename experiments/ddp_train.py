@@ -49,7 +49,13 @@ class LossModule(nn.Module):
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="data")
-    ap.add_argument("--bytes-mat", default=None)
+    ap.add_argument("--train-file", default="train2048.npy",
+                    help="e.g. train_tokens.npy for wikitext shards")
+    ap.add_argument("--val-file", default="val2048.npy")
+    ap.add_argument("--vocab", type=int, default=0,
+                    help="0 = infer from bytes_mat/tokenizer path")
+    ap.add_argument("--n-bytes", type=int, default=8)
+    ap.add_argument("--d-code", type=int, default=32)
     ap.add_argument("--codebook", default=None)
     ap.add_argument("--window", type=int, default=64)
     ap.add_argument("--dim", type=int, default=256)
@@ -99,8 +105,8 @@ def main(rank, world, args=None, store_path=".ddp_store"):
         else (lambda *a, **k: None)
 
     # ---- data: mmap; one GPU-resident disjoint segment per rank
-    tr = np.load(os.path.join(args.data_dir, "train2048.npy"), mmap_mode="r")
-    va = np.load(os.path.join(args.data_dir, "val2048.npy"), mmap_mode="r")
+    tr = np.load(os.path.join(args.data_dir, args.train_file), mmap_mode="r")
+    va = np.load(os.path.join(args.data_dir, args.val_file), mmap_mode="r")
     n_tr = len(tr)
     seg = n_tr // world
     train = torch.from_numpy(np.array(tr[rank * seg:(rank + 1) * seg])) \
@@ -121,11 +127,13 @@ def main(rank, world, args=None, store_path=".ddp_store"):
     # ---- model (identical init on all ranks; DDP broadcasts anyway)
     torch.manual_seed(0)
     bm = torch.load(args.bytes_mat, map_location="cpu") if args.bytes_mat else None
+    vocab = args.vocab or (int(bm.shape[0]) if bm is not None else 2048)
     m = av.AttLM(input_mode="byte", train_allpos=args.allpos,
                  pos_mode=args.pos_mode, block_kind=args.block_kind,
                  dim=args.dim, heads=args.heads, n_attn=args.n_attn,
                  depth_after=args.depth, code_dim=args.code_dim,
-                 vocab=2048, window=W, bytes_mat=bm).to(device)
+                 n_bytes=args.n_bytes, d_code=args.d_code,
+                 vocab=vocab, window=W, bytes_mat=bm).to(device)
     if args.iso_lambda:
         m.iso_lambda = args.iso_lambda
     m.decoder.codes(cache_path=args.codebook)

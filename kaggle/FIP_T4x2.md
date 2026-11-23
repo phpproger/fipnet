@@ -71,6 +71,27 @@ keep whichever is faster (T4 fp16 tensor cores usually win).
   `bytes_mat_16384.pt`, `codebook_16384.pt` (needs the 16k tokenizer on the
   packing machine only).
 
+## 4b. Wikitext-103 path (no TinyStories upload needed)
+
+Clone + prepare + train the ~10M model:
+
+```python
+!git clone https://github.com/phpproger/fipnet.git /kaggle/working/fipnet
+%cd /kaggle/working/fipnet
+!pip -q install datasets
+!python experiments/prepare_wikitext.py --vocab 8192 --n-bytes 12     --max-tokens 100000000 --out-dir data
+# (~15-25 min: download + BPE-8192 + tokenize 100M tokens)
+
+!torchrun --standalone --nproc_per_node=2 experiments/ddp_train.py     --dim 640 --depth 14 --n-attn 2 --heads 4     --train-file train_tokens.npy --val-file val_tokens.npy     --n-bytes 12 --vocab 8192     --steps 50000 --batch 512 --lr 3e-4     --data-dir data --bytes-mat data/bytes_mat.pt     --ckpt /kaggle/working/ck_wiki10m.pt
+```
+
+Config sheet (V=8192, n_bytes=12, code_dim=32):
+  D640 L14 na2 h4 = 9.87M  <- headline 10M
+  D576 L14 na3 h4 = 9.67M  (3 attention patterns)
+  D512 L16 na2 h4 = 6.84M
+VRAM at B=512x64: ~4-6GB per T4 (16GB) - headroom for --window 128
+(attention FLOPs x4, rope/mask now handle any window).
+
 ## 5. Gotchas
 
 * `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` — the scripts set it via
