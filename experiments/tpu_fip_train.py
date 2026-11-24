@@ -278,13 +278,11 @@ def run(core, a):
     return 0
 
 
-def _mp_fn(index):
-    a = _MP_ARGS
+def _mp_fn(index, a):
+    # args arrive PICKLED through xmp.spawn - module globals do NOT survive
+    # the process pool (each worker re-imports the module with _MP_ARGS=None)
     core = MpCore()
     run(core, a)
-
-
-_MP_ARGS = None
 
 
 def main(argv=None) -> int:
@@ -297,9 +295,7 @@ def main(argv=None) -> int:
         import torch_xla.distributed.xla_multiprocessing as xmp
         for k in ("TPU_PROCESS_ADDRESSES", "CLOUD_TPU_TASK_ID"):
             os.environ.pop(k, None)          # stale pod-slice view (spawn-only)
-        global _MP_ARGS
-        _MP_ARGS = a                          # Namespace survives pickling
-        xmp.spawn(_mp_fn, args=(), nprocs=None)
+        xmp.spawn(_mp_fn, args=(a,), nprocs=None)   # args are pickled through
         return 0
 
     # single-core: in-kernel probe is authoritative here
