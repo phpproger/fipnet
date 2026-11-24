@@ -44,9 +44,22 @@ class BlockV2(nn.Module):
         super().__init__()
         self.kind = kind
         self.psi_alpha0 = skip_alpha
-        if kind != "gated":                 # gated carries no dense W (bug fix:
-                                            # it previously held a dead D^2
-                                            # weight unused by forward)
+        if kind == "rot":
+            # v2 coupling: complex rotation with wave-modulated phase.
+            # Channels are paired (2k=Re, 2k+1=Im); the block multiplies each
+            # pair by e^{i ang_k}, ang = theta + alpha*u, u = phi(W z).
+            # EXACT isometry for ANY parameter values: theta/alpha/W only
+            # change the angle, and rotation is isometric at every angle -
+            # depth-stable under training drift (bare_text d32 verdict).
+            self.w = nn.Parameter(torch.empty(dim, dim))
+            nn.init.orthogonal_(self.w)
+            self.offs = nn.Parameter(torch.empty(dim))
+            _uniform_phase_init(self.offs)
+            self.theta = nn.Parameter(torch.zeros(dim // 2))
+            self.alpha = nn.Parameter(torch.full((dim // 2,), 0.1))
+        elif kind != "gated":             # gated carries no dense W (bug fix:
+                                          # it previously held a dead D^2
+                                          # weight unused by forward)
             self.weight = nn.Parameter(torch.empty(dim, dim))
             nn.init.orthogonal_(self.weight)
             self.bias = nn.Parameter(torch.zeros(dim))
@@ -78,10 +91,25 @@ class BlockV2(nn.Module):
                  + ((torch.sin(self.psi) - self.psi_alpha0) ** 2).mean()
         if self.kind == "gated":
             return ((torch.sin(self.psi) - self.psi_alpha0) ** 2).mean()
+        if self.kind == "rot":
+            # the modulation gain alpha is what lets parameter drift inflate
+            # the backward Jacobian (~alpha*||W||); anchor it at init
+            return ((self.alpha - 0.1) ** 2).mean()
         # half: nothing to anchor - exact isometry by construction
         return self.weight.new_zeros(())
 
     def forward(self, h):
+        if self.kind == "rot":
+            sh = h.shape
+            h2 = h.reshape(-1, sh[-1])          # blocks may get (B, W, D)
+            u = fip_wave_c(F.linear(h2, self.w) + self.offs, GAMMA, BETA)
+            ang = self.theta + self.alpha * u[:, 0::2]
+            c, s = torch.cos(ang), torch.sin(ang)
+            out = torch.empty_like(h2)
+            zr, zi = h2[:, 0::2], h2[:, 1::2]
+            out[:, 0::2] = c * zr - s * zi
+            out[:, 1::2] = s * zr + c * zi
+            return out.reshape(sh)
         if self.kind == "half":
             z = F.linear(h, self.weight) + self.bias
             return (h + fip_wave_c(z, GAMMA, BETA)) / SQRT2

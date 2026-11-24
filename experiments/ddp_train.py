@@ -195,7 +195,7 @@ def parse_args():
     return build_parser().parse_args()
 
 
-_DEPTH_W = __import__("re").compile(r"blocks\.\d+\.(w1|w2|w3|weight)$")
+_DEPTH_W = __import__("re").compile(r"(blocks|mix_blocks)\.\d+\.(w1|w2|w3|weight|w)$")
 
 
 def ns_polar_(W, iters=5):
