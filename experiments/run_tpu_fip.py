@@ -16,8 +16,11 @@ import sys
 os.environ.setdefault("PJRT_DEVICE", "TPU")
 
 REPO = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(REPO)          # parent of experiments/ - what
+if ROOT not in sys.path:              # "import experiments.X" resolves against
+    sys.path.insert(0, ROOT)
 if REPO not in sys.path:
-    sys.path.insert(0, REPO)
+    sys.path.insert(1, REPO)
 
 
 def main(argv=None) -> int:

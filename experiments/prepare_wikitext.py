@@ -29,7 +29,8 @@ def main():
     # to the known-good pair before importing (no-op if already satisfied)
     import subprocess
     subprocess.run([sys.executable, "-m", "pip", "install", "-q",
-                    "datasets==2.19.1", "pyarrow==14.0.2", "fsspec==2024.3.0"],
+                    "numpy==1.26.4", "datasets==2.19.1", "pyarrow==14.0.2",
+                    "fsspec==2024.3.0"],
                    check=False)
     from datasets import load_dataset
     from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
