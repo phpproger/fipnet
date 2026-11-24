@@ -155,6 +155,10 @@ def build_parser():
     ap.add_argument("--save-every", type=int, default=2000)
     ap.add_argument("--log", default="/kaggle/working/runs/fip_tpu.jsonl")
     ap.add_argument("--log-every", type=int, default=50)
+    ap.add_argument("--bf16", action="store_true",
+                    help="autocast xla/bf16 for fwd+bwd - halves the attention "
+                         "logit footprint (TPU-native; TPU-vs-TPU loss compare "
+                         "only, documented bf16 caveat)")
     ap.add_argument("--smoke-xla", action="store_true")
     ap.add_argument("--tpu-parallel", action="store_true")
     return ap
@@ -242,7 +246,9 @@ def run(core, a):
     for s in range(step0, a.steps + 1):
         ts = time.perf_counter()
         x, y = sample(starts, B)
-        loss = m.loss(x, y)
+        with torch.autocast("xla", dtype=torch.bfloat16,
+                            enabled=getattr(a, "bf16", False)):
+            loss = m.loss(x, y)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         core.all_reduce_grads(list(m.parameters()))
