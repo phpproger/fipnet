@@ -1,7 +1,8 @@
-"""Prepare wikitext-103 for FIP-Net: raw download -> BPE -> token shards.
+"""Prepare wikitext-103 for FIP-Net: HF parquet -> BPE -> token shards.
 
-Deliberately dependency-light: NO datasets/pandas/pyarrow (their numpy ABI
-chains break across Kaggle images). Just urllib + zipfile + tokenizers.
+Dependency-light by design: NO datasets/pandas/pyarrow (numpy-ABI hell
+across Kaggle images). Downloads the HF parquet shards directly and reads
+them with polars (pure rust wheel).
 
     python experiments/prepare_wikitext.py --vocab 8192 --n-bytes 12 \
         --max-tokens 100000000 --out-dir data
@@ -10,46 +11,34 @@ Outputs: train_tokens.npy / val_tokens.npy (uint16), wikitext_tokenizer.json,
 bytes_mat.pt (V x n_bytes rows).
 """
 import argparse
-import io
 import os
+import subprocess
 import sys
 import urllib.request
-import zipfile
 
-URLS = [
-    "https://wikitext.smerity.com/wikitext-103-raw-v1.zip",
-    "https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/wikitext-103-raw-v1.zip",
-    "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-raw-v1.zip",
-]
+# The original .zip is dead on every mirror (smerity 403, S3 403 - see
+# huggingface/tokenizers#1683). HF now ships parquet shards.
+BASE = ("https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/"
+        "wikitext-103-raw-v1")
+SHARDS = {
+    "train": [f"{BASE}/train-00000-of-00002.parquet",
+              f"{BASE}/train-00001-of-00002.parquet"],
+    "test": [f"{BASE}/test-00000-of-00001.parquet"],
+}
 
 
-def fetch_raw(out_dir):
-    zip_path = os.path.join(out_dir, "wikitext-103-raw-v1.zip")
-    for url in URLS:
-        try:
+def fetch_split(split, out_dir):
+    import polars as pl
+    lines = []
+    for i, url in enumerate(SHARDS[split]):
+        path = os.path.join(out_dir, f"{split}-{i}.parquet")
+        if not os.path.exists(path):
             print(f"downloading {url} ...", flush=True)
-            urllib.request.urlretrieve(url, zip_path)
-            with zipfile.ZipFile(zip_path) as z:
-                names = [n for n in z.namelist() if n.endswith(".raw")]
-                for n in names:
-                    z.extract(n, out_dir)
-            return names
-        except Exception as e:                                   # noqa: BLE001
-            print(f"  failed: {e}", flush=True)
-    raise SystemExit("all wikitext mirrors failed - download manually to "
-                     + out_dir)
-
-
-def find_split(extracted, key):
-    for path in extracted:
-        if key in path and (path.endswith(key) or key + "." in path
-                            or path.split("/")[-1] == key):
-            return os.path.join(*path.split("/")) if "/" in path else path
-    # fallback: any path containing the key
-    for path in extracted:
-        if key in path:
-            return path
-    raise SystemExit(f"split {key} not found in {extracted}")
+            urllib.request.urlretrieve(url, path)
+        df = pl.read_parquet(path)
+        lines.extend(t for t in df["text"].to_list() if t.strip())
+        print(f"  {split}[{i}]: {df.height} rows", flush=True)
+    return lines
 
 
 def main():
@@ -62,21 +51,14 @@ def main():
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "polars"],
+                   check=False)
     from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
 
-    names = fetch_raw(args.out_dir)
-    extracted = [os.path.join(args.out_dir, n) for n in names]
-    train_txt = find_split(extracted, "wiki.train.raw")
-    test_txt = find_split(extracted, "wiki.test.raw")
-    print(f"train file: {train_txt} ({os.path.getsize(train_txt)/1e6:.0f} MB)",
+    train_lines = fetch_split("train", args.out_dir)
+    test_lines = fetch_split("test", args.out_dir)
+    print(f"train lines: {len(train_lines)}, test lines: {len(test_lines)}",
           flush=True)
-
-    def lines(path):
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                t = line.rstrip("\n")
-                if t.strip():
-                    yield t
 
     tok_path = os.path.join(args.out_dir, "wikitext_tokenizer.json")
     if not os.path.exists(tok_path):
@@ -87,7 +69,7 @@ def main():
         trainer = trainers.BpeTrainer(
             vocab_size=args.vocab, special_tokens=["<|pad|>"],
             initial_alphabet=pre_tokenizers.ByteLevel.alphabet())
-        tok.train_from_iterator(lines(train_txt), trainer)
+        tok.train_from_iterator(iter(train_lines), trainer)
         tok.save(tok_path)
     tok = Tokenizer.from_file(tok_path)
     V = tok.get_vocab_size()
@@ -102,18 +84,18 @@ def main():
         rows[i, :len(b)] = list(b)
     torch.save(torch.from_numpy(rows), os.path.join(args.out_dir, "bytes_mat.pt"))
 
-    def encode(path, cap):
+    def encode(lines_, cap):
         ids = []
-        for line in lines(path):
+        for line in lines_:
             ids.extend(tok.encode(line).ids)
             if len(ids) >= cap:
                 break
         return np.asarray(ids[:cap], dtype=np.uint16)
 
     print("tokenizing train ...", flush=True)
-    tr = encode(train_txt, args.max_tokens)
+    tr = encode(train_lines, args.max_tokens)
     print("tokenizing test ...", flush=True)
-    va = encode(test_txt, args.val_tokens)
+    va = encode(test_lines, args.val_tokens)
     np.save(os.path.join(args.out_dir, "train_tokens.npy"), tr)
     np.save(os.path.join(args.out_dir, "val_tokens.npy"), va)
     print(f"done: train {len(tr)/1e6:.1f}M tokens, val {len(va)/1e3:.0f}K, "
