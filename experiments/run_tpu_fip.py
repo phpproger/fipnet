@@ -29,6 +29,13 @@ def main(argv=None) -> int:
     # fresh session? data is gitignored - say so LOUDLY on stdout
     for f in (a.fit, a.val, a.bytes_mat):
         if not os.path.exists(f):
+            msg = ("MISSING: " + f + " - run prepare_wikitext.py and the "
+                   "codebook prep cell first (data/ is gitignored)")
+            print("*** " + msg + " ***", flush=True)
+            return 1
+    # fresh session? data is gitignored - say so LOUDLY on stdout
+    for f in (a.fit, a.val, a.bytes_mat):
+        if not os.path.exists(f):
             print(f"
 *** MISSING: {f} - run prepare_wikitext.py + the "
                   f"codebook prep cell first (data/ is gitignored). ***
