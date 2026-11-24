@@ -177,6 +177,12 @@ def build_parser():
                          "wave chain into single kernels; eager fallback on "
                          "compile failure")
     ap.add_argument("--bench", action="store_true")
+    ap.add_argument("--attn-mode", default="replace", choices=["replace", "half"],
+                    help="half = llama-style (h+attn)/sqrt2 identity preservation "
+                         "for deep attention stacks; replace = champion behavior")
+    ap.add_argument("--warmup", type=int, default=0,
+                    help="linear LR ramp over N steps (deep attention stacks "
+                         "from scratch need ~500)")
     ap.add_argument("--ns-ortho", type=int, default=0,
                     help="Newton-Schulz re-orthogonalization of the depth-"
                          "chain block maps every N steps (0=off, try 50)")
@@ -294,6 +300,8 @@ def run_ddp(m, args, rank, world, local, device, log_prefix="fip"):
     dt = 0.0
     for s in range(step0, args.steps + 1):
         ts = time.perf_counter()
+        if getattr(args, "warmup", 0) and s <= args.warmup:
+            lr_t.fill_(args.lr * s / args.warmup)   # tensor-lr: capturable Adam sees it
         x, y = sample_all(train, B)
         with torch.amp.autocast("cuda", enabled=args.amp):
             loss = ddp(x, y)
