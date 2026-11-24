@@ -359,7 +359,8 @@ def main(args=None, rank=None, world=None):
                  code_dim=getattr(args, "code_dim", 32),
                  n_bytes=getattr(args, "n_bytes", 8),
                  d_code=getattr(args, "d_code", 32),
-                 vocab=vocab, window=args.window, bytes_mat=bm).to(device)
+                 vocab=vocab, window=args.window, bytes_mat=bm,
+                 attn_mode=getattr(args, "attn_mode", "replace")).to(device)
     if getattr(args, "iso_lambda", 0.0):
         m.iso_lambda = args.iso_lambda
     m.decoder.codes(cache_path=getattr(args, "codebook", None))

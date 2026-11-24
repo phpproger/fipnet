@@ -28,6 +28,8 @@ sys.path.insert(0, ".")
 from fipnet.model import LowRankPhaseBottleneck, _uniform_phase_init
 from fipnet.activation import fip_wave, GAMMA, BETA
 from fipnet.graph_step import GraphedStep
+
+_ATT_SQRT2 = 1.0 / math.sqrt(2.0)   # isometric residual scale for attn_mode="half"
 from experiments.block_v2 import BlockV2
 from experiments.tiny_stories import load_chunks
 
@@ -99,8 +101,10 @@ class AttLM(nn.Module):
                  window=64, dim=128, depth=6, code_dim=32, n_bytes=8, d_code=32,
                  n_pos=8, skip_alpha=0.7, heads=1, n_attn=1, depth_after=6,
                  tokenizer_path=None, vocab=None, train_allpos=False,
-                 pos_mode="harmonic", block_kind="channel", bytes_mat=None):
+                 pos_mode="harmonic", block_kind="channel", bytes_mat=None,
+                 attn_mode="replace"):
         super().__init__()
+        self.attn_mode = attn_mode
         vocab = vocab or V
         self.vocab = vocab
         self.window, self.input_mode, self.act = window, input_mode, act
@@ -177,7 +181,13 @@ class AttLM(nn.Module):
         # (single attn+mix, then all blocks).
         for i in range(max(len(self.attn_layers), len(self.blocks))):
             if i < len(self.attn_layers):
-                h = self.mix_blocks[i](self.attn_layers[i](h))
+                a = self.attn_layers[i](h)
+                if self.attn_mode == "half":
+                    # llama-style identity preservation, isometric form:
+                    # deep attention stacks that REPLACE the state kill the
+                    # token-identity signal (unigram plateau at 17 layers)
+                    h = (h + a) * _ATT_SQRT2
+                h = self.mix_blocks[i](h)
             if i < len(self.blocks):
                 h = self.blocks[i](h)
         if not self.train_allpos:
