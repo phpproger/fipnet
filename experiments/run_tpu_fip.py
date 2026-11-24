@@ -33,15 +33,6 @@ def main(argv=None) -> int:
                    "codebook prep cell first (data/ is gitignored)")
             print("*** " + msg + " ***", flush=True)
             return 1
-    # fresh session? data is gitignored - say so LOUDLY on stdout
-    for f in (a.fit, a.val, a.bytes_mat):
-        if not os.path.exists(f):
-            print(f"
-*** MISSING: {f} - run prepare_wikitext.py + the "
-                  f"codebook prep cell first (data/ is gitignored). ***
-",
-                  flush=True)
-            return 1
     # smoke defaults for a first touch of the hardware
     if a.steps == 20000 and a.batch == 1024 and "--steps" not in (argv or []):
         a.steps, a.batch = 20, 8
