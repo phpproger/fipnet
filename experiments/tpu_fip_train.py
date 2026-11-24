@@ -137,6 +137,9 @@ def build_parser():
     ap.add_argument("--n-attn", type=int, default=2)
     ap.add_argument("--heads", type=int, default=4)
     ap.add_argument("--iso-lambda", type=float, default=1e-3)
+    ap.add_argument("--attn-mode", default="half", choices=["replace", "half"],
+                    help="half = (h+attn)/sqrt2 identity preservation - required "
+                         "for deep (17-layer) attention stacks")
     ap.add_argument("--batch", type=int, default=1024,
                     help="GLOBAL batch (PJRT replicates); ~128/core")
     ap.add_argument("--steps", type=int, default=20000)
@@ -163,7 +166,8 @@ def build_model(a):
                  block_kind="gated", dim=a.dim, heads=a.heads,
                  n_attn=a.n_attn, depth_after=a.depth, code_dim=a.d_code,
                  n_bytes=a.n_bytes, d_code=a.d_code, vocab=a.vocab,
-                 window=a.window, bytes_mat=bm)
+                 window=a.window, bytes_mat=bm,
+                 attn_mode=getattr(a, "attn_mode", "replace"))
     if a.iso_lambda:
         m.iso_lambda = a.iso_lambda
     m.decoder.codes(cache_path=a.codebook)
