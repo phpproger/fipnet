@@ -31,7 +31,7 @@ import torch.nn.functional as F
 sys.path.insert(0, ".")
 
 from fipnet.model import LowRankPhaseBottleneck, _uniform_phase_init
-from fipnet.activation import fip_wave, GAMMA, BETA
+from fipnet.activation import fip_wave, fip_wave_c, GAMMA, BETA
 from fipnet.graph_step import GraphedStep
 from experiments.tiny_stories import load_chunks
 
@@ -84,16 +84,16 @@ class BlockV2(nn.Module):
     def forward(self, h):
         if self.kind == "half":
             z = F.linear(h, self.weight) + self.bias
-            return (h + fip_wave(z, GAMMA, BETA)) / SQRT2
+            return (h + fip_wave_c(z, GAMMA, BETA)) / SQRT2
         if self.kind == "gated":
-            out = F.linear(fip_wave(F.linear(h, self.w1), GAMMA, BETA)
+            out = F.linear(fip_wave_c(F.linear(h, self.w1), GAMMA, BETA)
                            * F.linear(h, self.w2), self.w3)
             return torch.cos(self.psi) * h + torch.sin(self.psi) * out
         z = F.linear(h, self.weight)
         if self.kind == "channel":
-            out = fip_wave(self.beta * z + self.bias, GAMMA, BETA)
+            out = fip_wave_c(self.beta * z + self.bias, GAMMA, BETA)
             return torch.cos(self.psi) * h + torch.sin(self.psi) * out
-        out = fip_wave(z + self.bias, GAMMA, BETA)
+        out = fip_wave_c(z + self.bias, GAMMA, BETA)
         a = self.skip_alpha
         return (1.0 - a * a) ** 0.5 * h + a * out
 
@@ -137,13 +137,13 @@ class FIPV2(nn.Module):
     def _lut(self):
         z = self.bytes_mat.float().unsqueeze(-1) * self.omega.unsqueeze(0) \
             + self.theta.unsqueeze(0)
-        return fip_wave(z, GAMMA, BETA).sum(1)
+        return fip_wave_c(z, GAMMA, BETA).sum(1)
 
     def features(self, tokens):
         h = self._lut()[tokens]
-        h = fip_wave(F.linear(h, self.lift.weight, self.lift_bias), GAMMA, BETA)
+        h = fip_wave_c(F.linear(h, self.lift.weight, self.lift_bias), GAMMA, BETA)
         h = h.reshape(h.shape[0], -1)
-        h = fip_wave(F.linear(h, self.flat_proj.weight, self.flat_bias), GAMMA, BETA)
+        h = fip_wave_c(F.linear(h, self.flat_proj.weight, self.flat_bias), GAMMA, BETA)
         for block in self.blocks:
             h = block(h)
         return h

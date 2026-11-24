@@ -26,7 +26,7 @@ import torch.nn.functional as F
 sys.path.insert(0, ".")
 
 from fipnet.model import LowRankPhaseBottleneck, _uniform_phase_init
-from fipnet.activation import fip_wave, GAMMA, BETA
+from fipnet.activation import fip_wave, fip_wave_c, GAMMA, BETA
 from fipnet.graph_step import GraphedStep
 
 _ATT_SQRT2 = 1.0 / math.sqrt(2.0)   # isometric residual scale for attn_mode="half"
@@ -159,7 +159,7 @@ class AttLM(nn.Module):
     def _pe(self, Wv, device):
         pos = torch.arange(Wv, dtype=torch.float32, device=device)
         z = pos.view(-1, 1, 1) * self.omega_p.unsqueeze(0) + self.theta_p.unsqueeze(0)
-        return fip_wave(z, GAMMA, BETA).sum(1)      # (W, D)
+        return fip_wave_c(z, GAMMA, BETA).sum(1)      # (W, D)
 
     def features(self, tokens):
         Wv = tokens.shape[1]
@@ -168,12 +168,12 @@ class AttLM(nn.Module):
         elif self.input_mode == "code":
             c = self.decoder.codes()                # (V, K), shared with output
             code = c[tokens]                        # (B, W, K)
-            h = fip_wave(F.linear(code, self.lift.weight), GAMMA, BETA)
+            h = fip_wave_c(F.linear(code, self.lift.weight), GAMMA, BETA)
         else:
             z = self.bytes_mat[tokens].float().unsqueeze(-1) * self.omega.unsqueeze(0) \
                 + self.theta.unsqueeze(0)
-            code = fip_wave(z, GAMMA, BETA).sum(2)  # (B, W, dc)
-            h = fip_wave(F.linear(code, self.lift.weight), GAMMA, BETA)
+            code = fip_wave_c(z, GAMMA, BETA).sum(2)  # (B, W, dc)
+            h = fip_wave_c(F.linear(code, self.lift.weight), GAMMA, BETA)
         if self.pos_mode == "harmonic":
             h = h + self._pe(Wv, tokens.device)
         # interleaved layer structure: layer i = [attn_i + mix_i, block_i].

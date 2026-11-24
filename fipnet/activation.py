@@ -79,9 +79,27 @@ class _FIPTriangular(torch.autograd.Function):
         return grad_out * (-torch.sign(a)), None
 
 
+def _fip_wave_eager(x, gamma=GAMMA, beta=BETA, theta=0.0):
+    """Plain-op form for torch.compile: same math as _FIPParabolic, but as
+    ~5 fused-able elementwise ops instead of a custom autograd Function
+    (inductor merges them into one kernel; the custom Function blocks
+    fusion). Cusps (|u|=1) have zero derivative - same as the analytic one.
+    """
+    z = beta * x + theta
+    s = (z - 1.0) / PERIOD
+    a = 2.0 * (s - torch.floor(s)) - 1.0
+    u = 1.0 - 2.0 * torch.abs(a)
+    return gamma * u * (2.0 - torch.abs(u))
+
+
 def fip_wave(x, gamma=GAMMA, beta=BETA, theta=0.0):
     """Two-parametric Fast Isometric Parabolic Wave."""
     return _FIPParabolic.apply(x, gamma, beta, theta)
+
+
+def fip_wave_c(x, gamma=GAMMA, beta=BETA, theta=0.0):
+    """Compile-friendly entry: eager ops (inductor fuses these)."""
+    return _fip_wave_eager(x, gamma, beta, theta)
 
 
 def fip_tri(x, theta=0.0):

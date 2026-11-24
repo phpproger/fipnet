@@ -172,6 +172,10 @@ def build_parser():
     ap.add_argument("--save-every", type=int, default=2000,
                     help="periodic resume point at <ckpt>.last")
     ap.add_argument("--amp", action="store_true")
+    ap.add_argument("--compile", action="store_true",
+                    help="torch.compile the module (inductor) - fuses the "
+                         "wave chain into single kernels; eager fallback on "
+                         "compile failure")
     ap.add_argument("--bench", action="store_true")
     ap.add_argument("--ns-ortho", type=int, default=0,
                     help="Newton-Schulz re-orthogonalization of the depth-"
@@ -255,6 +259,12 @@ def run_ddp(m, args, rank, world, local, device, log_prefix="fip"):
     vx, vy = sample_all(val, 2048)
 
     net = LossModule(m).to(device)
+    if getattr(args, "compile", False) and device.type == "cuda":
+        try:
+            net.m = torch.compile(net.m)      # inductor: fuse wave chains
+            log(rank, "torch.compile: on (inductor)")
+        except Exception as e:
+            log(rank, f"torch.compile failed, eager fallback: {e}")
     dev_ids = [local] if device.type == "cuda" else None
     ddp = nn.parallel.DistributedDataParallel(net, device_ids=dev_ids) \
         if world > 1 else net
