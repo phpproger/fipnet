@@ -129,6 +129,32 @@ this cell isolates its contribution. Optionally add --depth 16 for the
   `--comp-blocks >= n_attn` (all attention inside the compressor).
 
 
+## 4e. T4x2 arms: coupling fix + attention budget (wikitext 10M)
+
+The 10k baseline: FIP na2 gated 28.37% vs llama 32.06%. Two causes, now
+separable: (a) gated VP-skip backward gain 1.13/block -> 5.7x at L14
+(measured, bare_minimum.py); (b) attention budget: llama has attention in
+ALL 13 layers, FIP in 2 of 14. Cells isolate them; all with --amp.
+
+```python
+# arm A: coupling fix, same na2 (isolates cause (a))
+!torchrun --standalone --nproc_per_node=2 experiments/ddp_train.py     --dim 640 --depth 14 --n-attn 2 --heads 4 --block-kind half     --train-file train_tokens.npy --val-file val_tokens.npy     --n-bytes 12 --vocab 8192 --steps 50000 --batch 512 --lr 3e-4 --amp     --data-dir data --bytes-mat data/bytes_mat.pt     --ckpt /kaggle/working/ck_wiki10m_half.pt
+```
+
+```python
+# arm B: attention budget, same gated coupling (isolates cause (b))
+!torchrun --standalone --nproc_per_node=2 experiments/ddp_train.py     --dim 576 --depth 14 --n-attn 3 --heads 4     --train-file train_tokens.npy --val-file val_tokens.npy     --n-bytes 12 --vocab 8192 --steps 50000 --batch 512 --lr 3e-4 --amp     --data-dir data --bytes-mat data/bytes_mat.pt     --ckpt /kaggle/working/ck_wiki10m_na3.pt
+```
+
+```python
+# arm C: both fixes (the candidate champion)
+!torchrun --standalone --nproc_per_node=2 experiments/ddp_train.py     --dim 576 --depth 14 --n-attn 3 --heads 4 --block-kind half     --train-file train_tokens.npy --val-file val_tokens.npy     --n-bytes 12 --vocab 8192 --steps 50000 --batch 512 --lr 3e-4 --amp     --data-dir data --bytes-mat data/bytes_mat.pt     --ckpt /kaggle/working/ck_wiki10m_half_na3.pt
+```
+
+Param sheet (V=8192, n_bytes=12): A 9.88M, B 9.67M, C 9.62M - all iso with
+llama's 9.67M. Reference baseline (gated na2) 28.37% @ 10k. Eval prints
+every 1000 steps.
+
 ## 5. TPU v5e-8 path (torch_xla 2.8 / PJRT)
 
 Notebook accelerator setting MUST read `TPU v5e-8`. Pinned install (a
