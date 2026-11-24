@@ -26,6 +26,15 @@ if REPO not in sys.path:
 def main(argv=None) -> int:
     import experiments.tpu_fip_train as T
     a = T.build_parser().parse_args(argv)
+    # fresh session? data is gitignored - say so LOUDLY on stdout
+    for f in (a.fit, a.val, a.bytes_mat):
+        if not os.path.exists(f):
+            print(f"
+*** MISSING: {f} - run prepare_wikitext.py + the "
+                  f"codebook prep cell first (data/ is gitignored). ***
+",
+                  flush=True)
+            return 1
     # smoke defaults for a first touch of the hardware
     if a.steps == 20000 and a.batch == 1024 and "--steps" not in (argv or []):
         a.steps, a.batch = 20, 8
