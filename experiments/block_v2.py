@@ -19,6 +19,8 @@ Usage: python experiments/block_v2.py [--steps 8000] [--dims ...]
 
 import argparse
 import math
+
+SQRT2 = math.sqrt(2.0)
 import sys
 import time
 
@@ -76,9 +78,13 @@ class BlockV2(nn.Module):
                  + ((torch.sin(self.psi) - self.psi_alpha0) ** 2).mean()
         if self.kind == "gated":
             return ((torch.sin(self.psi) - self.psi_alpha0) ** 2).mean()
+        # half: nothing to anchor - exact isometry by construction
         return self.weight.new_zeros(())
 
     def forward(self, h):
+        if self.kind == "half":
+            z = F.linear(h, self.weight) + self.bias
+            return (h + fip_wave(z, GAMMA, BETA)) / SQRT2
         if self.kind == "gated":
             out = F.linear(fip_wave(F.linear(h, self.w1), GAMMA, BETA)
                            * F.linear(h, self.w2), self.w3)
