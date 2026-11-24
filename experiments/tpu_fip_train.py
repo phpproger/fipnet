@@ -136,6 +136,8 @@ def build_parser():
     ap.add_argument("--depth", type=int, default=14)
     ap.add_argument("--n-attn", type=int, default=2)
     ap.add_argument("--heads", type=int, default=4)
+    ap.add_argument("--block-kind", default="gated",
+                    choices=["gated", "half", "rot"])
     ap.add_argument("--iso-lambda", type=float, default=1e-3)
     ap.add_argument("--attn-mode", default="half", choices=["replace", "half"],
                     help="half = (h+attn)/sqrt2 identity preservation - required "
@@ -163,7 +165,7 @@ def build_model(a):
     import experiments.attention_v3 as av
     bm = torch.load(a.bytes_mat, map_location="cpu") if a.bytes_mat else None
     m = av.AttLM(input_mode="byte", train_allpos=True, pos_mode="rope",
-                 block_kind="gated", dim=a.dim, heads=a.heads,
+                 block_kind=a.block_kind, dim=a.dim, heads=a.heads,
                  n_attn=a.n_attn, depth_after=a.depth, code_dim=a.d_code,
                  n_bytes=a.n_bytes, d_code=a.d_code, vocab=a.vocab,
                  window=a.window, bytes_mat=bm,
