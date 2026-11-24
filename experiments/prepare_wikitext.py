@@ -10,6 +10,8 @@ Outputs into --out-dir (default data/):
 """
 import argparse
 import os
+import subprocess
+import sys
 
 import numpy as np
 
@@ -23,6 +25,12 @@ def main():
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
+    # datasets' PyExtensionType usage breaks with pyarrow>=15; downgrade
+    # to the known-good pair before importing (no-op if already satisfied)
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                    "datasets==2.19.1", "pyarrow==14.0.2", "fsspec==2024.3.0"],
+                   check=False)
     from datasets import load_dataset
     from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders
     print("downloading wikitext-103-raw-v1 ...", flush=True)
